@@ -13,7 +13,7 @@ include $(DEVKITPRO)/libnx/switch_rules
 TARGET		:=	$(notdir $(CURDIR))
 APP_TITLE	:=	FF4 The After Years
 APP_AUTHOR	:=	naga
-APP_VERSION	:=	1.0.0
+APP_VERSION	:=	1.0.1
 BUILD		:=	build
 SOURCES		:=	source
 DATA		:=	data

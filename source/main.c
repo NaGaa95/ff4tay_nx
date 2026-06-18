@@ -236,12 +236,10 @@ static void update_touch(void) {
 #define K_LEFT  0x00020
 #define K_UP    0x00040
 #define K_DOWN  0x00080
-#define K_R1    0x00100
+#define K_R1    0x00100 // map
 #define K_L1    0x00200
-#define K_Y     0x00400
+#define K_Y     0x00400 // pause menu
 #define K_X     0x00800
-#define K_SEL   0x01000
-#define K_START 0x10000
 
 static PadState pad;
 
@@ -256,8 +254,8 @@ static void update_keys(void) {
   if (d & HidNpadButton_Y) m |= K_Y;
   if (d & HidNpadButton_L) m |= K_L1;
   if (d & HidNpadButton_R) m |= K_R1;
-  if (d & HidNpadButton_Plus)  m |= K_START;
-  if (d & HidNpadButton_Minus) m |= K_SEL;
+  if (d & HidNpadButton_Plus)  m |= K_Y;
+  if (d & HidNpadButton_Minus) m |= K_R1;
   // d-pad and left stick both drive directions
   if (d & (HidNpadButton_Up    | HidNpadButton_StickLUp))    m |= K_UP;
   if (d & (HidNpadButton_Down  | HidNpadButton_StickLDown))  m |= K_DOWN;

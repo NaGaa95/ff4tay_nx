@@ -261,22 +261,6 @@ static void glDrawArrays_log(GLenum mode, GLint first, GLsizei count) {
   gl_dump_lit_state();
   glDrawArrays(mode, first, count);
 }
-// DEBUG: log distinct glMaterialfv calls.
-static const char *gl_matname(GLenum p) {
-  switch (p) { case 0x1200:return"AMB"; case 0x1201:return"DIF"; case 0x1202:return"SPC";
-    case 0x1600:return"EMI"; case 0x1601:return"SHIN"; case 0x1602:return"AMB+DIF"; default:return"?"; }
-}
-static void glmat_log_call(GLenum face, GLenum pname, const GLfloat *p) {
-  static unsigned seen[64]; static int ns = 0, lines = 0;
-  unsigned h = (pname << 8) ^ ((unsigned)(p[0]*255)<<16) ^ ((unsigned)(p[1]*255)<<8) ^ (unsigned)(p[2]*255);
-  int dup = 0; for (int i=0;i<ns;i++) if (seen[i]==h) { dup=1; break; }
-  if (!dup && lines < 40) {
-    if (ns < 64) seen[ns++] = h;
-    lines++;
-    debugPrintf("glMaterialfv(%s,%s, %.2f %.2f %.2f %.2f)\n",
-      face==0x0408?"F+B":(face==0x0404?"FRONT":"?"), gl_matname(pname), p[0],p[1],p[2],p[3]);
-  }
-}
 static void glColor4ub_log(GLubyte r, GLubyte g, GLubyte b, GLubyte a) {
   static unsigned last = 0xffffffffu; static int lines = 0;
   unsigned v = (r<<24)|(g<<16)|(b<<8)|a;
@@ -285,17 +269,36 @@ static void glColor4ub_log(GLubyte r, GLubyte g, GLubyte b, GLubyte a) {
 }
 #endif
 
-// The DS->GLES1 layer leaves GL material emission white on lit draws and never
-// resets it, clamping the lit colour to white and flattening all shading
-// ("characters too bright"). mesa applies emission per spec (Android's driver
-// didn't); force it to black so the engine's light shades models as intended.
+static int gl_is_white_emission(const GLfloat *p) {
+  return p && p[0] > 0.98f && p[1] > 0.98f && p[2] > 0.98f;
+}
+
+static int gl_rgb_has_value(const GLfloat *p) {
+  return p && (p[0] > 0.05f || p[1] > 0.05f || p[2] > 0.05f);
+}
+
+static int gl_material_has_lit_color(GLenum face) {
+  GLfloat ambient[4] = {0};
+  GLfloat diffuse[4] = {0};
+  GLenum query_face = face == GL_BACK ? GL_BACK : GL_FRONT;
+
+  glGetMaterialfv(query_face, GL_AMBIENT, ambient);
+  glGetMaterialfv(query_face, GL_DIFFUSE, diffuse);
+  return gl_rgb_has_value(ambient) || gl_rgb_has_value(diffuse);
+}
+
 static void glMaterialfv_fix(GLenum face, GLenum pname, const GLfloat *p) {
   static const GLfloat black[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
-#if DEBUG_LOG
-  glmat_log_call(face, pname, p);
-#endif
-  glMaterialfv(face, pname, (pname == GL_EMISSION) ? black : p);
+
+  if (pname == GL_EMISSION && gl_is_white_emission(p) &&
+      gl_material_has_lit_color(face)) {
+    glMaterialfv(face, pname, black);
+    return;
+  }
+
+  glMaterialfv(face, pname, p);
 }
+
 
 // import table -------------------------------------------------------------
 
