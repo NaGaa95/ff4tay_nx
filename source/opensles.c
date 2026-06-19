@@ -218,6 +218,16 @@ static Player *g_players[MAX_PLAYERS];
 static int g_player_count = 0;
 static SDL_mutex *g_reg_lock = NULL;
 
+#define MOVIE_RING_FRAMES 65536
+static SDL_mutex *g_movie_lock = NULL;
+static int16_t *g_movie_pcm = NULL;
+static int g_movie_active = 0;
+static int g_movie_paused = 0;
+static int g_movie_head = 0;
+static int g_movie_count = 0;
+static uint64_t g_movie_samples_queued = 0;
+static uint64_t g_movie_samples_played = 0;
+
 static float mb_to_linear(SLmillibel mb) {
   if (mb <= -9600) return 0.0f;
   return powf(10.0f, (float)mb / 2000.0f); // 100 mB = 1 dB
@@ -272,6 +282,28 @@ static void mix_player(Player *p, int32_t *acc, int frames) {
   }
 }
 
+static void mix_movie(int32_t *acc, int frames) {
+  if (!g_movie_lock)
+    return;
+
+  SDL_LockMutex(g_movie_lock);
+  if (!g_movie_active || g_movie_paused || !g_movie_pcm) {
+    SDL_UnlockMutex(g_movie_lock);
+    return;
+  }
+
+  const int n = g_movie_count < frames ? g_movie_count : frames;
+  for (int i = 0; i < n; i++) {
+    const int idx = (g_movie_head + i) % MOVIE_RING_FRAMES;
+    acc[i * 2 + 0] += g_movie_pcm[idx * 2 + 0];
+    acc[i * 2 + 1] += g_movie_pcm[idx * 2 + 1];
+  }
+  g_movie_head = (g_movie_head + n) % MOVIE_RING_FRAMES;
+  g_movie_count -= n;
+  g_movie_samples_played += (uint64_t)n;
+  SDL_UnlockMutex(g_movie_lock);
+}
+
 static void SDLCALL audio_callback(void *ud, Uint8 *stream, int len) {
   (void)ud;
   static int first = 1;
@@ -287,6 +319,8 @@ static void SDLCALL audio_callback(void *ud, Uint8 *stream, int len) {
       mix_player(g_players[i], acc, frames);
   SDL_UnlockMutex(g_reg_lock);
 
+  mix_movie(acc, frames);
+
   int16_t *out = (int16_t *)stream;
   for (int i = 0; i < frames * 2; i++) {
     int32_t v = acc[i];
@@ -297,6 +331,8 @@ static void SDLCALL audio_callback(void *ud, Uint8 *stream, int len) {
 }
 
 static void ensure_device(int rate) {
+  if (!g_reg_lock)
+    g_reg_lock = SDL_CreateMutex();
   if (g_dev)
     return;
   if (SDL_InitSubSystem(SDL_INIT_AUDIO) < 0) {
@@ -318,6 +354,111 @@ static void ensure_device(int rate) {
   g_dev_rate = have.freq;
   SDL_PauseAudioDevice(g_dev, 0);
   debugPrintf("opensles: SDL audio device opened (%d Hz, %d ch)\n", have.freq, have.channels);
+}
+
+int opensles_movie_begin(int requested_rate) {
+  if (!g_movie_lock)
+    g_movie_lock = SDL_CreateMutex();
+  if (!g_movie_pcm)
+    g_movie_pcm = calloc(MOVIE_RING_FRAMES * 2, sizeof(int16_t));
+  if (!g_movie_lock || !g_movie_pcm)
+    return 0;
+
+  ensure_device(requested_rate > 0 ? requested_rate : 44100);
+  if (!g_dev)
+    return 0;
+
+  SDL_LockMutex(g_movie_lock);
+  g_movie_active = 1;
+  g_movie_paused = 1;
+  g_movie_head = 0;
+  g_movie_count = 0;
+  g_movie_samples_queued = 0;
+  g_movie_samples_played = 0;
+  SDL_UnlockMutex(g_movie_lock);
+  return g_dev_rate;
+}
+
+int opensles_movie_queue(const int16_t *pcm, int frames) {
+  int done = 0;
+  while (done < frames) {
+    if (!g_movie_lock)
+      return done;
+
+    SDL_LockMutex(g_movie_lock);
+    if (!g_movie_active || !g_movie_pcm) {
+      SDL_UnlockMutex(g_movie_lock);
+      return done;
+    }
+
+    const int space = MOVIE_RING_FRAMES - g_movie_count;
+    int n = frames - done;
+    if (n > space)
+      n = space;
+    for (int i = 0; i < n; i++) {
+      const int idx = (g_movie_head + g_movie_count + i) % MOVIE_RING_FRAMES;
+      g_movie_pcm[idx * 2 + 0] = pcm[(done + i) * 2 + 0];
+      g_movie_pcm[idx * 2 + 1] = pcm[(done + i) * 2 + 1];
+    }
+    g_movie_count += n;
+    g_movie_samples_queued += (uint64_t)n;
+    SDL_UnlockMutex(g_movie_lock);
+
+    done += n;
+    if (done < frames)
+      SDL_Delay(2);
+  }
+  return done;
+}
+
+void opensles_movie_set_paused(int paused) {
+  if (!g_movie_lock)
+    return;
+  SDL_LockMutex(g_movie_lock);
+  if (g_movie_active)
+    g_movie_paused = paused != 0;
+  SDL_UnlockMutex(g_movie_lock);
+}
+
+uint64_t opensles_movie_samples_queued(void) {
+  uint64_t ret = 0;
+  if (!g_movie_lock)
+    return 0;
+  SDL_LockMutex(g_movie_lock);
+  ret = g_movie_samples_queued;
+  SDL_UnlockMutex(g_movie_lock);
+  return ret;
+}
+
+uint64_t opensles_movie_samples_played(void) {
+  uint64_t ret = 0;
+  if (!g_movie_lock)
+    return 0;
+  SDL_LockMutex(g_movie_lock);
+  ret = g_movie_samples_played;
+  SDL_UnlockMutex(g_movie_lock);
+  return ret;
+}
+
+int opensles_movie_buffered_frames(void) {
+  int ret = 0;
+  if (!g_movie_lock)
+    return 0;
+  SDL_LockMutex(g_movie_lock);
+  ret = g_movie_count;
+  SDL_UnlockMutex(g_movie_lock);
+  return ret;
+}
+
+void opensles_movie_end(void) {
+  if (!g_movie_lock)
+    return;
+  SDL_LockMutex(g_movie_lock);
+  g_movie_active = 0;
+  g_movie_paused = 0;
+  g_movie_head = 0;
+  g_movie_count = 0;
+  SDL_UnlockMutex(g_movie_lock);
 }
 
 // --- buffer queue interface -------------------------------------------------
@@ -598,6 +739,13 @@ uint32_t slCreateEngine(void **pEngine, uint32_t numOptions, const void *pEngine
 }
 
 void opensles_shutdown(void) {
+  opensles_movie_end();
+  free(g_movie_pcm);
+  g_movie_pcm = NULL;
+  if (g_movie_lock) {
+    SDL_DestroyMutex(g_movie_lock);
+    g_movie_lock = NULL;
+  }
   if (g_dev) {
     SDL_CloseAudioDevice(g_dev);
     g_dev = 0;

@@ -21,6 +21,13 @@ uint32_t slCreateEngine(void **pEngine, uint32_t numOptions, const void *pEngine
 
 void opensles_shutdown(void);
 
+int opensles_movie_begin(int requested_rate);
+int opensles_movie_queue(const int16_t *pcm, int frames);
+void opensles_movie_set_paused(int paused);
+uint64_t opensles_movie_samples_queued(void);
+uint64_t opensles_movie_samples_played(void);
+int opensles_movie_buffered_frames(void);
+void opensles_movie_end(void);
 // interface-id tokens referenced by libff4a's relocations. each is a unique
 // non-NULL sentinel (self-addressed); the engine passes the value to
 // GetInterface and we compare pointers.

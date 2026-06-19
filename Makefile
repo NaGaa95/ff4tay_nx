@@ -11,7 +11,7 @@ include $(DEVKITPRO)/libnx/switch_rules
 
 #---------------------------------------------------------------------------------
 TARGET		:=	$(notdir $(CURDIR))
-APP_TITLE	:=	FF4 The After Years
+APP_TITLE	:=	FINAL FANTASY IV THE AFTER YEAR
 APP_AUTHOR	:=	naga
 APP_VERSION	:=	1.0.1
 BUILD		:=	build
@@ -39,6 +39,7 @@ LDFLAGS	=	-specs=$(DEVKITPRO)/libnx/switch.specs -g $(ARCH) -Wl,-Map,$(notdir $*
 # pipeline the Cuore engine renders with; GLESv2/EGL/glapi/drm_nouveau are
 # pulled in by mesa+SDL2. FreeType+libpng implement drawFont / loadTexture.
 LIBS	:= -lSDL2 -lGLESv1_CM -lGLESv2 -lEGL -lglapi -ldrm_nouveau \
+			-lavformat -lavcodec -lswscale -lswresample -lavutil -ldav1d \
 			-Wl,--start-group -lfreetype -lharfbuzz -Wl,--end-group \
 			-lpng -lbz2 -lz -lnx -lm
 

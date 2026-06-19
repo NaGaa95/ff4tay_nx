@@ -15,6 +15,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <EGL/egl.h>
+#include <GLES/gl.h>
 #include <switch.h>
 #include <SDL2/SDL.h>
 
@@ -27,11 +28,14 @@
 #include "obb.h"
 #include "gfx.h"
 #include "opensles.h"
+#include "movie_player.h"
 
 static void *heap_so_base = NULL;
 static size_t heap_so_limit = 0;
 
 so_module game_mod; // libff4a.so
+
+#define INTRO_MOVIE "opening.mkv"
 
 // provide a replacement heap init so the newlib heap is separate from the .so
 void __libnx_initheap(void) {
@@ -272,6 +276,33 @@ static void update_keys(void) {
   jni_set_keys(m);
 }
 
+static void play_intro_movie(void) {
+  struct stat st;
+  if (stat(INTRO_MOVIE, &st) < 0 || st.st_size <= 0)
+    return;
+
+  glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+  glClear(GL_COLOR_BUFFER_BIT);
+  eglSwapBuffers(s_display, s_surface);
+
+  debugPrintf("intro: playing %s\n", INTRO_MOVIE);
+  if (!movie_play(INTRO_MOVIE, 1))
+    return;
+
+  while (appletMainLoop() && movie_is_playing()) {
+    padUpdate(&pad);
+    const u64 down = padGetButtonsDown(&pad);
+    if (down & (HidNpadButton_A | HidNpadButton_B | HidNpadButton_X |
+                HidNpadButton_Y | HidNpadButton_Plus | HidNpadButton_Minus))
+      movie_skip();
+    movie_main_loop_tick();
+  }
+  movie_stop();
+
+  glClear(GL_COLOR_BUFFER_BIT);
+  eglSwapBuffers(s_display, s_surface);
+}
+
 // watchdog: if the render loop stalls (engine blocked on a worker thread),
 // force a crash after a grace period so Atmosphere dumps every thread's stack
 static volatile int g_render_frames = 0;
@@ -311,6 +342,11 @@ int main(void) {
 
   if (!egl_init())
     fatal_error("Failed to create an OpenGL ES context.");
+
+  padConfigureInput(8, HidNpadStyleSet_NpadStandard);
+  padInitializeAny(&pad);
+  hidInitializeTouchScreen();
+  play_intro_movie();
 
   debugPrintf("heap: newlib %u MB, .so zone %u KB at %p\n",
       MEMORY_MB, (unsigned)(heap_so_limit / 1024), heap_so_base);
@@ -352,10 +388,6 @@ int main(void) {
 
   debugPrintf("setViewport(%d,%d %dx%d)\n", jni_view_x, jni_view_y, jni_view_w, jni_view_h);
   e_setViewport(fake_env, thiz, jni_view_x, jni_view_y, jni_view_w, jni_view_h);
-
-  padConfigureInput(8, HidNpadStyleSet_NpadStandard);
-  padInitializeAny(&pad);
-  hidInitializeTouchScreen();
 
   int frame = 0;
   int boot_frames = 0;

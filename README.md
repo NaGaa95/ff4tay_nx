@@ -21,9 +21,10 @@ To install:
 1. Create a folder called `ff4tay` in the `switch` folder on your SD card.
 2. From your `.apk`, extract **`lib/arm64-v8a/libff4a.so`** to `/switch/ff4tay/`.
 3. From your `.apk`, extract **`assets/main.obb`** to `/switch/ff4tay/`.
-4. Copy **`ff4tay_nx.nro`** into `/switch/ff4tay/`.
+4. Optional: from the PC version, copy **`opening.mkv`** to `/switch/ff4tay/` to restore the intro movie.
+5. Copy **`ff4tay_nx.nro`** into `/switch/ff4tay/`.
 
-So `/switch/ff4tay/` should contain: `libff4a.so`, `main.obb`, `ff4tay_nx.nro`.
+So `/switch/ff4tay/` should contain: `libff4a.so`, `main.obb`, `ff4tay_nx.nro`. If you want the restored intro, also add `opening.mkv` from the PC version.
 
 ### Notes
 
@@ -52,6 +53,8 @@ You're going to need devkitA64 and the following devkitPro packages:
 * `switch-freetype`
 * `switch-libpng`
 * `switch-harfbuzz`
+* `switch-ffmpeg`
+* `switch-dav1d`
 
 
 ### Credits
