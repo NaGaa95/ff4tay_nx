@@ -227,6 +227,7 @@ static int g_movie_head = 0;
 static int g_movie_count = 0;
 static uint64_t g_movie_samples_queued = 0;
 static uint64_t g_movie_samples_played = 0;
+static int g_movie_opened_dev = 0;
 
 static float mb_to_linear(SLmillibel mb) {
   if (mb <= -9600) return 0.0f;
@@ -364,9 +365,11 @@ int opensles_movie_begin(int requested_rate) {
   if (!g_movie_lock || !g_movie_pcm)
     return 0;
 
+  const int had_dev = (g_dev != 0);
   ensure_device(requested_rate > 0 ? requested_rate : 44100);
   if (!g_dev)
     return 0;
+  g_movie_opened_dev = !had_dev;
 
   SDL_LockMutex(g_movie_lock);
   g_movie_active = 1;
@@ -459,6 +462,17 @@ void opensles_movie_end(void) {
   g_movie_head = 0;
   g_movie_count = 0;
   SDL_UnlockMutex(g_movie_lock);
+
+  // Release the device the movie opened so the game re-opens it at its own rate.
+  // Outside g_movie_lock: SDL_CloseAudioDevice waits on the audio callback, which
+  // itself takes g_movie_lock.
+  if (g_movie_opened_dev) {
+    g_movie_opened_dev = 0;
+    if (g_dev) {
+      SDL_CloseAudioDevice(g_dev);
+      g_dev = 0;
+    }
+  }
 }
 
 // --- buffer queue interface -------------------------------------------------
